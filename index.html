@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sách Giáo Khoa AI Tương Tác</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Custom styles for spinner */
+        .spinner {
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-left-color: #fff;
+            border-radius: 50%;
+            width: 1.25rem; height: 1.25rem;
+            animation: spin 1s linear infinite;
+        }
+        .large-spinner {
+            width: 3rem; height: 3rem;
+            border-width: 5px;
+            border-left-color: #3b82f6; /* Tailwind blue-500 */
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        /* General styles for rendered content */
+        .document-content-area p { margin-bottom: 0.75rem; }
+        .document-content-area h1, .document-content-area h2, .document-content-area h3 { font-weight: bold; margin-top: 1.25rem; margin-bottom: 0.75rem; }
+        .document-content-area h1 { font-size: 2.25rem; }
+        .document-content-area h2 { font-size: 1.75rem; }
+        .document-content-area h3 { font-size: 1.25rem; }
+
+        .hidden-content { display: none !important; }
+
+        /* Styles for selection-based AI action buttons */
+        .selection-action-buttons {
+            display: none;
+            flex-direction: column; gap: 0.5rem; margin-bottom: 1rem;
+        }
+        .selection-action-buttons.active { display: flex; }
+        .selection-action-buttons button {
+            width: 100%; color: white; font-weight: 600; padding: 0.5rem 1rem;
+            border-radius: 0.375rem; box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+            transition: background-color 0.3s ease-in-out;
+        }
+
+        /* Styles for PDF canvases and text layer */
+        .pdf-page-container {
+            position: relative;
+            background-color: white;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+        .pdf-page-container canvas {
+            display: block; max-width: 100%; height: auto;
+        }
+        .pdf-page-container .textLayer {
+            position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+            color: transparent; user-select: text;
+            transform-origin: 0% 0%;
+        }
+        .pdf-page-container .textLayer > div {
+            position: absolute; white-space: pre; cursor: text; pointer-events: auto;
+        }
+        .pdf-page-container .textLayer ::selection {
+            background: rgba(0, 120, 255, 0.3);
+        }
+        
+        /* Styles for saved file list, history, and bookmarks */
+        .sidebar-list-item {
+            cursor: pointer; padding: 0.5rem 0.75rem; border-radius: 0.375rem;
+            border: 1px solid #d9e2ec; transition: background-color 0.2s ease-in-out;
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .sidebar-list-item:hover { background-color: #e2e8f0; }
+        .sidebar-list-item .delete-btn {
+            background-color: #ef4444; color: white; padding: 0.25rem 0.5rem; border-radius: 0.25rem;
+            font-size: 0.75rem; line-height: 1; margin-left: 0.5rem; transition: background-color 0.2s;
+        }
+        .sidebar-list-item .delete-btn:hover { background-color: #dc2626; }
+
+        /* Modal Styles */
+        .modal-backdrop {
+            position: fixed; inset: 0; background-color: rgba(0, 0, 0, 0.5);
+            display: flex; justify-content: center; align-items: center; z-index: 100;
+        }
+        .modal-content {
+            background-color: white; padding: 1.5rem; border-radius: 0.5rem;
+            box-shadow: 0 10px 15px rgba(0, 0, 0, 0.1); max-width: 400px; width: 90%; text-align: center;
+        }
+        .modal-buttons { display: flex; justify-content: center; gap: 1rem; margin-top: 1.5rem; }
+        .modal-buttons button { padding: 0.75rem 1.5rem; border-radius: 0.25rem; font-weight: 600; transition: background-color 0.2s; }
+        .modal-buttons .confirm-btn { background-color: #ef4444; color: white; }
+        .modal-buttons .confirm-btn:hover { background-color: #dc2626; }
+        .modal-buttons .cancel-btn { background-color: #e5e7eb; color: #374151; }
+        .modal-buttons .cancel-btn:hover { background-color: #d1d5db; }
+    </style>
+    <!-- External Libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth.js/1.6.0/mammoth.browser.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script>
+        // Setup PDF.js worker
+        if (typeof pdfjsLib !== 'undefined') {
+            pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        }
+    </script>
+</head>
+<body class="min-h-screen bg-gray-100 text-gray-800 flex flex-col items-center font-sans">
+    <h1 class="text-3xl md:text-4xl font-bold text-blue-700 text-center mb-4 mt-6">Sách Giáo Khoa AI Tương Tác</h1>
+    <h2 class="text-md md:text-lg text-blue-600 text-center mb-6">Trợ lý học tập thông minh của bạn</h2>
+
+    <!-- Authentication Section -->
+    <div id="authSection" class="w-full max-w-md mx-auto bg-white p-6 rounded-lg shadow-md mb-6">
+        <h3 class="text-xl font-semibold text-gray-700 mb-4 text-center">Đăng nhập hoặc Đăng ký</h3>
+        <div id="authForm" class="flex flex-col gap-4">
+            <input type="email" id="emailInput" placeholder="Email" class="p-3 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 text-base">
+            <input type="password" id="passwordInput" placeholder="Mật khẩu" class="p-3 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 text-base">
+            <button id="registerBtn" class="bg-green-500 hover:bg-green-600 text-white font-semibold py-3 px-4 rounded-md shadow-md transition duration-300 ease-in-out">Đăng ký</button>
+            <button id="loginBtn" class="bg-blue-500 hover:bg-blue-600 text-white font-semibold py-3 px-4 rounded-md shadow-md transition duration-300 ease-in-out">Đăng nhập</button>
+            <button id="logoutBtn" class="bg-red-500 hover:bg-red-600 text-white font-semibold py-3 px-4 rounded-md shadow-md transition duration-300 ease-in-out hidden-content">Đăng xuất</button>
+            <p id="authStatus" class="text-sm font-semibold text-center text-gray-600"></p>
+        </div>
+        <div id="userIdDisplay" class="text-xs text-gray-500 text-center mt-2 hidden-content"></div>
+    </div>
+
+    <!-- Main Learning Center Content -->
+    <main id="mainContent" class="w-full mx-auto flex flex-col gap-6 p-4 hidden-content">
+        <!-- Top Bar: File Upload & Saved Files -->
+        <div class="w-full bg-white p-6 rounded-lg shadow-md flex flex-col gap-4 mb-4">
+             <div class="flex flex-col sm:flex-row items-center gap-4 mb-4">
+                <label for="fileInput" class="relative cursor-pointer bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded-md shadow transition duration-300 ease-in-out">
+                    Chọn Sách (PDF/DOCX)
+                    <input type="file" id="fileInput" class="absolute inset-0 opacity-0 cursor-pointer" accept=".pdf,.docx">
+                </label>
+                <span id="fileNameDisplay" class="text-gray-600 truncate max-w-xs">Chưa có sách nào được chọn.</span>
+            </div>
+             <div class="mb-4">
+                <h4 class="text-md font-semibold text-gray-700 mb-2">Giá sách của bạn (Lưu cục bộ):</h4>
+                <div id="savedFilesList" class="flex flex-col gap-2 border border-gray-200 rounded-md p-2 max-h-40 overflow-y-auto bg-gray-50">
+                    <p class="text-sm text-gray-500 text-center py-4">Đang tải giá sách...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Document Viewer Area -->
+        <div class="flex-1 bg-white p-6 rounded-lg shadow-md flex flex-col gap-4">
+             <!-- PDF Page Navigation Controls -->
+            <div id="pdfPageControls" class="flex justify-center items-center flex-wrap gap-4 mb-4 mt-2 hidden-content">
+                <button id="prevPageBtn" class="bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold py-2 px-4 rounded-md transition"><i class="fas fa-arrow-left"></i></button>
+                <span id="pageNumberDisplay" class="font-bold text-lg text-gray-700">Trang 1 / 1</span>
+                <button id="nextPageBtn" class="bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold py-2 px-4 rounded-md transition"><i class="fas fa-arrow-right"></i></button>
+                <input type="number" id="goToPageInput" min="1" class="w-20 p-2 border border-gray-300 rounded-md text-sm text-center" placeholder="Đến trang">
+                <button id="bookmarkPageBtn" title="Đánh dấu trang này" class="bg-yellow-500 hover:bg-yellow-600 text-white font-semibold py-2 px-4 rounded-md transition"><i class="fas fa-bookmark"></i></button>
+                <button id="summarizePageBtn" title="Tóm tắt bài học hiện tại" class="bg-teal-500 hover:bg-teal-600 text-white font-semibold py-2 px-4 rounded-md transition ml-4"><i class="fas fa-lightbulb"></i> Tóm tắt</button>
+            </div>
+            
+            <!-- Main Viewer for textbook pages -->
+            <div id="documentViewer" class="flex-grow w-full flex justify-center items-start overflow-auto bg-gray-200 p-4 md:p-8 rounded-md gap-8 min-h-[70vh]">
+                <p class="text-center text-gray-500 self-center">Tải lên một cuốn sách để bắt đầu hành trình tri thức của bạn.</p>
+            </div>
+        </div>
+    </main>
+
+    <!-- AI Sidebar -->
+    <aside id="aiSidebar" class="fixed top-0 right-0 h-screen w-full md:w-96 bg-white p-6 rounded-l-lg shadow-xl flex flex-col gap-4 transform translate-x-full transition-transform duration-300 ease-in-out z-50 overflow-y-auto">
+        <h3 class="text-xl font-semibold text-gray-700 mb-4">Trợ lý AI</h3>
+        <button id="closeAiSidebarBtn" class="absolute top-4 right-4 bg-red-500 hover:bg-red-600 text-white p-2 rounded-full text-sm"><i class="fas fa-times"></i></button>
+
+        <!-- Contextual AI Buttons -->
+        <div id="selectionActionButtons" class="selection-action-buttons">
+            <h4 class="text-md font-semibold text-gray-600 mb-1">Hỏi AI về đoạn đã chọn:</h4>
+            <button id="explainSelectedBtn" class="bg-blue-500 hover:bg-blue-600">Giải thích khái niệm</button>
+            <button id="findExampleBtn" class="bg-green-500 hover:bg-green-600">Tìm ví dụ thực tế</button>
+            <button id="solveExerciseBtn" class="bg-indigo-500 hover:bg-indigo-600">Giải bài tập này</button>
+            <button id="summarizeSelectedBtn" class="bg-yellow-500 hover:bg-yellow-600 text-gray-800">Tóm tắt đoạn văn</button>
+        </div>
+
+        <textarea id="promptInput" rows="4" class="w-full p-3 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 text-base resize-y" placeholder="Đặt câu hỏi cho AI về nội dung sách..."></textarea>
+        <button id="sendPromptButton" class="w-full bg-blue-500 hover:bg-blue-600 text-white font-semibold py-3 px-4 rounded-md shadow-md transition flex items-center justify-center gap-2">
+            <span id="buttonText">Gửi</span>
+            <div id="buttonSpinner" class="spinner hidden"></div>
+        </button>
+        <p id="statusMessage" class="text-sm font-semibold text-gray-600 text-center"></p>
+
+        <h4 class="text-lg font-semibold text-gray-700 mt-4 mb-2">Phản hồi từ AI:</h4>
+        <div id="responseContainer" class="min-h-[120px] p-4 border border-gray-300 bg-gray-50 rounded-md text-sm text-gray-700 flex items-center justify-center relative overflow-auto document-content-area">Chưa có phản hồi...</div>
+
+        <h4 class="text-lg font-semibold text-gray-700 mt-4 mb-2">Lịch sử hội thoại:</h4>
+        <div id="aiHistoryList" class="flex flex-col gap-2 border border-gray-200 rounded-md p-2 max-h-60 overflow-y-auto bg-gray-50"></div>
+
+        <h4 class="text-lg font-semibold text-gray-700 mt-4 mb-2">Trang đã đánh dấu:</h4>
+        <div id="bookmarksList" class="flex flex-col gap-2 border border-gray-200 rounded-md p-2 max-h-60 overflow-y-auto bg-gray-50"></div>
+    </aside>
+
+    <!-- Floating UI Elements -->
+    <button id="toggleAiSidebarBtn" class="fixed bottom-4 right-4 bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-5 rounded-full shadow-lg z-40 hidden-content">AI <i class="fas fa-robot"></i></button>
+    <div id="aiSidebarBackdrop" class="fixed inset-0 bg-black bg-opacity-50 z-40 hidden-content"></div>
+    <div id="confirmationModal" class="modal-backdrop hidden-content">
+        <div class="modal-content">
+            <p class="text-lg font-semibold mb-4" id="modalMessage">Bạn có chắc chắn muốn xóa?</p>
+            <div class="modal-buttons">
+                <button id="confirmDeleteBtn" class="confirm-btn">Xóa</button>
+                <button id="cancelDeleteBtn" class="cancel-btn">Hủy</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Firebase SDKs -->
+    <script type="module">
+        // Import Firebase modules
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-app.js";
+        import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, deleteDoc, doc as firestoreDoc } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-firestore.js";
+        import { getAI, getGenerativeModel, GoogleAIBackend } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-ai.js";
+
+        // Your web app's Firebase configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyCOofbN91yeOEWeAIP6wHgtGBfLZi9qJ1Y",
+            authDomain: "h4rent-c12ef.firebaseapp.com",
+            projectId: "h4rent-c12ef",
+            storageBucket: "h4rent-c12ef.appspot.com",
+            messagingSenderId: "860501720608",
+            appId: "1:860501720608:web:d6a81ae6aeba099c72c645"
+        };
+
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        console.log("Firebase App initialized!");
+
+        // ===============================================
+        // Global Variables & DOM Elements
+        // ===============================================
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        let currentUserId = null;
+        let indexedDB_db = null;
+        const DB_NAME = 'AITextbookDB', DB_VERSION = 1, FILE_STORE_NAME = 'textbooks', BOOKMARK_STORE_NAME = 'bookmarks';
+
+        const dom = {
+            emailInput: document.getElementById('emailInput'), passwordInput: document.getElementById('passwordInput'),
+            registerBtn: document.getElementById('registerBtn'), loginBtn: document.getElementById('loginBtn'), logoutBtn: document.getElementById('logoutBtn'),
+            authStatus: document.getElementById('authStatus'), authForm: document.getElementById('authForm'), mainContent: document.getElementById('mainContent'),
+            fileInput: document.getElementById('fileInput'), fileNameDisplay: document.getElementById('fileNameDisplay'),
+            documentViewer: document.getElementById('documentViewer'),
+            pdfPageControls: document.getElementById('pdfPageControls'), prevPageBtn: document.getElementById('prevPageBtn'),
+            nextPageBtn: document.getElementById('nextPageBtn'), pageNumberDisplay: document.getElementById('pageNumberDisplay'),
+            goToPageInput: document.getElementById('goToPageInput'), bookmarkPageBtn: document.getElementById('bookmarkPageBtn'),
+            summarizePageBtn: document.getElementById('summarizePageBtn'),
+            aiSidebar: document.getElementById('aiSidebar'), closeAiSidebarBtn: document.getElementById('closeAiSidebarBtn'),
+            toggleAiSidebarBtn: document.getElementById('toggleAiSidebarBtn'), aiSidebarBackdrop: document.getElementById('aiSidebarBackdrop'),
+            selectionActionButtons: document.getElementById('selectionActionButtons'), explainSelectedBtn: document.getElementById('explainSelectedBtn'),
+            findExampleBtn: document.getElementById('findExampleBtn'), solveExerciseBtn: document.getElementById('solveExerciseBtn'),
+            summarizeSelectedBtn: document.getElementById('summarizeSelectedBtn'),
+            promptInput: document.getElementById('promptInput'), sendPromptButton: document.getElementById('sendPromptButton'),
+            buttonText: document.getElementById('buttonText'), buttonSpinner: document.getElementById('buttonSpinner'),
+            statusMessage: document.getElementById('statusMessage'), responseContainer: document.getElementById('responseContainer'),
+            savedFilesList: document.getElementById('savedFilesList'), aiHistoryList: document.getElementById('aiHistoryList'),
+            bookmarksList: document.getElementById('bookmarksList'), confirmationModal: document.getElementById('confirmationModal'),
+            modalMessage: document.getElementById('modalMessage'), confirmDeleteBtn: document.getElementById('confirmDeleteBtn'),
+            cancelDeleteBtn: document.getElementById('cancelDeleteBtn')
+        };
+        
+        // State variables
+        let currentDocumentTextContent = "", currentPageTextContent = "", selectedTextForAI = "";
+        let currentFileId = null, pdfDocument = null, currentPageNum = 1, totalPages = 1;
+        let confirmAction = null, model;
+
+        // ===============================================
+        // Initializations (AI, DB)
+        // ===============================================
+        function updateStatus(type, message, targetElement = dom.statusMessage) {
+            if (targetElement) {
+                targetElement.className = `text-sm font-semibold text-center mt-2 ${type === 'success' ? 'text-green-600' : type === 'error' ? 'text-red-600' : 'text-yellow-600'}`;
+                targetElement.textContent = message;
+            }
+        }
+
+        try {
+            const ai = getAI(app, { backend: new GoogleAIBackend() });
+            model = getGenerativeModel(ai, { model: "gemini-2.5-flash" });
+            console.log("Generative Model instance created!");
+        } catch (e) {
+            console.error("AI Model Init Error:", e);
+            updateStatus('error', `Lỗi khởi tạo AI Model: ${e.message}.`);
+        }
+
+        function openDatabase() {
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open(DB_NAME, DB_VERSION);
+                request.onupgradeneeded = e => {
+                    const db = e.target.result;
+                    if (!db.objectStoreNames.contains(FILE_STORE_NAME)) db.createObjectStore(FILE_STORE_NAME, { keyPath: 'id', autoIncrement: true });
+                    if (!db.objectStoreNames.contains(BOOKMARK_STORE_NAME)) {
+                        const store = db.createObjectStore(BOOKMARK_STORE_NAME, { keyPath: 'id', autoIncrement: true });
+                        store.createIndex('fileId', 'fileId', { unique: false });
+                    }
+                };
+                request.onsuccess = e => { indexedDB_db = e.target.result; console.log('IndexedDB ready.'); resolve(indexedDB_db); };
+                request.onerror = e => { console.error('IndexedDB error:', e.target.errorCode); reject(e.target.errorCode); };
+            });
+        }
+        openDatabase().catch(e => console.error("Failed to open IndexedDB:", e));
+
+        // ===============================================
+        // Core App Logic (Rendering, AI Interaction)
+        // ===============================================
+        
+        async function renderSinglePageToContainer(pageNum, container) {
+            try {
+                const page = await pdfDocument.getPage(pageNum);
+                const viewport = page.getViewport({ scale: 1 });
+                const scale = container.clientWidth / viewport.width;
+                const scaledViewport = page.getViewport({ scale });
+
+                container.innerHTML = ''; // Clear previous content
+                const pageWrapper = document.createElement('div');
+                pageWrapper.className = 'pdf-page-container';
+                const canvas = document.createElement('canvas');
+                canvas.height = scaledViewport.height;
+                canvas.width = scaledViewport.width;
+                const textLayerDiv = document.createElement('div');
+                textLayerDiv.className = 'textLayer';
+                
+                pageWrapper.append(canvas, textLayerDiv);
+                container.appendChild(pageWrapper);
+
+                await page.render({ canvasContext: canvas.getContext('2d'), viewport: scaledViewport }).promise;
+                const textContent = await page.getTextContent();
+                await pdfjsLib.renderTextLayer({ textContent, container: textLayerDiv, viewport: scaledViewport, textDivs: [] }).promise;
+                
+                textLayerDiv.style.width = `${viewport.width}px`;
+                textLayerDiv.style.height = `${viewport.height}px`;
+                textLayerDiv.style.transform = `scale(${scale}, ${scale})`;
+            } catch (error) {
+                console.error(`Error rendering page ${pageNum}:`, error);
+                container.innerHTML = `<p class="text-red-600 p-4">Lỗi hiển thị trang ${pageNum}.</p>`;
+            }
+        }
+
+        async function renderBookPages(pageNum) {
+            if (!pdfDocument) return;
+            
+            dom.documentViewer.innerHTML = '<div class="large-spinner mx-auto self-center"></div>';
+            
+            const isTwoPageView = window.innerWidth >= 768;
+            if (isTwoPageView && pageNum > 1 && pageNum % 2 === 0) pageNum--;
+            currentPageNum = pageNum;
+
+            let pagesToRenderNumbers = [];
+            if (isTwoPageView) {
+                if (currentPageNum === 1) pagesToRenderNumbers.push(1);
+                else {
+                    pagesToRenderNumbers.push(currentPageNum);
+                    if (currentPageNum + 1 <= totalPages) pagesToRenderNumbers.push(currentPageNum + 1);
+                }
+            } else {
+                pagesToRenderNumbers.push(currentPageNum);
+            }
+            
+            let currentViewTextArray = [];
+            for (const pNum of pagesToRenderNumbers) {
+                const page = await pdfDocument.getPage(pNum);
+                const textContent = await page.getTextContent();
+                currentViewTextArray.push(textContent.items.map(item => item.str).join(' '));
+            }
+            currentPageTextContent = currentViewTextArray.join('\n\n');
+
+            dom.documentViewer.innerHTML = '';
+            for (const pNum of pagesToRenderNumbers) {
+                const pageContainer = document.createElement('div');
+                pageContainer.className = 'w-full md:w-1/2 relative';
+                if (pagesToRenderNumbers.length === 1) {
+                    pageContainer.className = 'w-full max-w-4xl relative';
+                }
+                dom.documentViewer.appendChild(pageContainer);
+                await renderSinglePageToContainer(pNum, pageContainer);
+            }
+
+            // Update page number display
+            if (pagesToRenderNumbers.length > 1) {
+                dom.pageNumberDisplay.textContent = `Trang ${pagesToRenderNumbers[0]}-${pagesToRenderNumbers[1]} / ${totalPages}`;
+            } else {
+                dom.pageNumberDisplay.textContent = `Trang ${pagesToRenderNumbers[0]} / ${totalPages}`;
+            }
+            
+            dom.prevPageBtn.disabled = currentPageNum <= 1;
+            dom.nextPageBtn.disabled = (isTwoPageView ? currentPageNum + 1 : currentPageNum) >= totalPages;
+            dom.goToPageInput.value = currentPageNum;
+        }
+
+        async function callGeminiAPI(aiPrompt, contextText = "", targetViewer = dom.responseContainer) {
+            if (!model || !auth.currentUser) {
+                updateStatus('error', 'Vui lòng đăng nhập để dùng AI.', dom.authStatus);
+                return;
+            }
+            if (!contextText && !aiPrompt) {
+                 updateStatus('error', 'Vui lòng nhập lời nhắc hoặc chọn văn bản.');
+                 return;
+            }
+
+            let fullPrompt = aiPrompt.trim();
+            if (contextText) {
+                fullPrompt = `Sử dụng nội dung sau làm ngữ cảnh để trả lời yêu cầu của tôi. Nếu không đủ thông tin, hãy cho biết.\n---\nNội dung: ${contextText}\n---\nYêu cầu của tôi: ${aiPrompt}`;
+            }
+
+            targetViewer.innerHTML = '<div class="large-spinner mx-auto my-4"></div>';
+            const isMainPrompt = targetViewer === dom.responseContainer;
+            if (isMainPrompt) {
+                dom.buttonText.textContent = 'Đang xử lý...';
+                dom.buttonSpinner.classList.remove('hidden');
+                dom.sendPromptButton.disabled = true;
+                dom.promptInput.disabled = true;
+            }
+            updateStatus('info', "Đang gửi yêu cầu đến AI...");
+
+            try {
+                const result = await model.generateContent(fullPrompt);
+                const response = result.response;
+                const text = response.text();
+                
+                if (typeof marked !== 'undefined') targetViewer.innerHTML = marked.parse(text);
+                else targetViewer.innerText = text;
+                updateStatus('success', "Đã nhận phản hồi.");
+
+                if (currentUserId) {
+                    await addDoc(collection(db, `artifacts/${appId}/users/${currentUserId}/ai_interactions`), {
+                        prompt: aiPrompt, response: text, timestamp: serverTimestamp(), fileId: currentFileId
+                    });
+                }
+            } catch (error) {
+                console.error("Gemini API Error:", error);
+                targetViewer.innerText = `Lỗi: ${error.message}.`;
+                updateStatus('error', `Lỗi API: ${error.message}.`);
+            } finally {
+                if (isMainPrompt) {
+                    dom.buttonText.textContent = 'Gửi';
+                    dom.buttonSpinner.classList.add('hidden');
+                    dom.sendPromptButton.disabled = false;
+                    dom.promptInput.disabled = false;
+                }
+            }
+        }
+        
+        async function loadFileFromIndexedDBAndDisplay(fileId, targetPageNum = 1) {
+            if (!indexedDB_db) await openDatabase();
+            if (!indexedDB_db) return updateStatus('error', 'Lỗi truy cập cơ sở dữ liệu cục bộ.');
+
+            dom.documentViewer.innerHTML = '<div class="large-spinner mx-auto self-center"></div>';
+            dom.fileNameDisplay.textContent = `Đang tải sách...`;
+            currentFileId = fileId; pdfDocument = null;
+
+            const request = indexedDB_db.transaction([FILE_STORE_NAME], 'readonly').objectStore(FILE_STORE_NAME).get(fileId);
+            request.onerror = () => updateStatus('error', 'Lỗi khi tải sách từ bộ nhớ.');
+            request.onsuccess = async (event) => {
+                const fileData = event.target.result;
+                if (!fileData) return updateStatus('error', 'Lỗi: Sách không tìm thấy.');
+
+                const { fileBlob, fileName, fileType } = fileData;
+                const arrayBuffer = await fileBlob.arrayBuffer();
+                
+                if (fileType === 'application/pdf') {
+                    const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+                    pdfDocument = await loadingTask.promise;
+                    totalPages = pdfDocument.numPages;
+                    await renderBookPages(targetPageNum);
+                    dom.pdfPageControls.classList.remove('hidden-content');
+                } else if (fileType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+                    const result = await window.mammoth.convertToHtml({ arrayBuffer });
+                    dom.documentViewer.innerHTML = `<div class="p-4">${result.value}</div>`;
+                    currentDocumentTextContent = result.value.replace(/<[^>]*>/g, ' ').trim();
+                    dom.pdfPageControls.classList.add('hidden-content');
+                } else {
+                    dom.documentViewer.innerHTML = `<p class="text-red-600">Định dạng file không được hỗ trợ.</p>`;
+                }
+                dom.fileNameDisplay.textContent = `Đang đọc: ${fileName}`;
+                updateStatus('success', `Đã mở sách "${fileName}".`);
+            };
+        }
+        
+        // --- FIX START: Automatically open sidebar on text selection ---
+        function handleTextSelection(e) {
+            // Check if the selection is within the document viewer area
+            if (!dom.documentViewer.contains(e.target)) return;
+
+            const selection = window.getSelection();
+            const selectedText = selection.toString().trim();
+
+            if (selectedText.length > 5) {
+                selectedTextForAI = selectedText;
+                dom.selectionActionButtons.classList.add('active');
+                openAiSidebar(); // Automatically open the sidebar to show the buttons
+            } else {
+                selectedTextForAI = "";
+                // Do not hide the buttons if the sidebar is already open
+                // The buttons will be hidden when the sidebar is closed or another action is taken
+                if (!dom.aiSidebar.classList.contains('translate-x-full')) {
+                    // Only remove if sidebar is open, to avoid weird state changes
+                    dom.selectionActionButtons.classList.remove('active');
+                }
+            }
+        }
+        // --- FIX END ---
+        
+        // ===============================================
+        // Data Loading and Deletion
+        // ===============================================
+        function createListItem(itemData, deleteHandler) {
+            const item = document.createElement('div');
+            item.className = 'sidebar-list-item';
+            
+            let detailsHtml = '';
+            if (itemData.type === 'file') {
+                detailsHtml = `<span class="font-medium">${itemData.fileName}</span><span class="text-xs text-gray-600">${new Date(itemData.uploadedAt).toLocaleDateString('vi-VN')}</span>`;
+            } else if (itemData.type === 'bookmark') {
+                detailsHtml = `<div class="flex flex-col"><span class="font-medium">${itemData.fileName} (Trang ${itemData.pageNum})</span><span class="text-xs text-gray-500">${new Date(itemData.bookmarkedAt).toLocaleDateString('vi-VN')}</span></div>`;
+            } else if (itemData.type === 'history') {
+                detailsHtml = `<div class="flex flex-col w-full overflow-hidden"><p class="font-medium text-sm truncate">Q: ${itemData.prompt}</p><p class="text-xs text-gray-500 self-end">${new Date(itemData.timestamp?.toDate()).toLocaleString('vi-VN')}</p></div>`;
+            }
+
+            item.innerHTML = `${detailsHtml}<button class="delete-btn" data-id="${itemData.id}"><i class="fas fa-trash-alt"></i></button>`;
+            
+            item.addEventListener('click', (e) => {
+                if (e.target.closest('.delete-btn')) {
+                    showConfirmationModal(`Bạn có chắc muốn xóa mục này?`, () => deleteHandler(itemData.id));
+                } else {
+                    itemData.clickHandler(itemData);
+                }
+            });
+            return item;
+        }
+
+        async function loadAndDisplayData(storeName, targetListElement, itemType, clickHandler, deleteHandler, emptyMessage) {
+            if (!indexedDB_db && (itemType === 'file' || itemType === 'bookmark')) await openDatabase();
+            
+            if (itemType === 'history') {
+                if (!currentUserId) return;
+                const q = query(collection(db, `artifacts/${appId}/users/${currentUserId}/ai_interactions`), orderBy('timestamp', 'desc'));
+                onSnapshot(q, (snapshot) => {
+                    targetListElement.innerHTML = '';
+                    if (snapshot.empty) targetListElement.innerHTML = `<p class="text-sm text-gray-500 p-4">${emptyMessage}</p>`;
+                    else snapshot.forEach(doc => {
+                        const data = { ...doc.data(), id: doc.id, type: itemType, clickHandler, deleteHandler };
+                        targetListElement.appendChild(createListItem(data));
+                    });
+                });
+            } else {
+                const request = indexedDB_db.transaction([storeName], 'readonly').objectStore(storeName).getAll();
+                request.onsuccess = (event) => {
+                    targetListElement.innerHTML = '';
+                    const items = event.target.result.reverse();
+                    if (items.length === 0) targetListElement.innerHTML = `<p class="text-sm text-gray-500 p-4">${emptyMessage}</p>`;
+                    else items.forEach(dbItem => {
+                        const data = { ...dbItem, type: itemType, clickHandler, deleteHandler };
+                        targetListElement.appendChild(createListItem(data));
+                    });
+                };
+            }
+        }
+        
+        const deleteAiHistory = id => deleteDoc(firestoreDoc(db, `artifacts/${appId}/users/${currentUserId}/ai_interactions`, id));
+        const deleteBookmark = id => indexedDB_db.transaction([BOOKMARK_STORE_NAME], 'readwrite').objectStore(BOOKMARK_STORE_NAME).delete(id).onsuccess = loadBookmarks;
+        const deleteFile = id => {
+            indexedDB_db.transaction([FILE_STORE_NAME], 'readwrite').objectStore(FILE_STORE_NAME).delete(id).onsuccess = () => {
+                loadFiles();
+                const bookmarkStore = indexedDB_db.transaction([BOOKMARK_STORE_NAME], 'readwrite').objectStore(BOOKMARK_STORE_NAME);
+                const index = bookmarkStore.index('fileId');
+                index.openCursor(IDBKeyRange.only(id)).onsuccess = (e) => {
+                    const cursor = e.target.result;
+                    if (cursor) { cursor.delete(); cursor.continue(); } else { loadBookmarks(); }
+                };
+            };
+        };
+
+        const loadFiles = () => loadAndDisplayData(FILE_STORE_NAME, dom.savedFilesList, 'file', data => loadFileFromIndexedDBAndDisplay(data.id), deleteFile, 'Giá sách của bạn trống.');
+        const loadBookmarks = () => loadAndDisplayData(BOOKMARK_STORE_NAME, dom.bookmarksList, 'bookmark', data => loadFileFromIndexedDBAndDisplay(data.fileId, data.pageNum), deleteBookmark, 'Chưa có trang nào được đánh dấu.');
+        const loadAiHistory = () => loadAndDisplayData(null, dom.aiHistoryList, 'history', data => { dom.promptInput.value = data.prompt; if (typeof marked !== 'undefined') dom.responseContainer.innerHTML = marked.parse(data.response); }, deleteAiHistory, 'Chưa có lịch sử hội thoại.');
+
+        // ===============================================
+        // Event Listeners
+        // ===============================================
+        
+        function showConfirmationModal(message, onConfirm) {
+            dom.confirmationModal.classList.remove('hidden-content');
+            dom.modalMessage.textContent = message;
+            confirmAction = onConfirm;
+        }
+        function hideConfirmationModal() {
+            dom.confirmationModal.classList.add('hidden-content');
+            confirmAction = null;
+        }
+
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                currentUserId = user.uid;
+                dom.authStatus.textContent = `Đã đăng nhập: ${user.email}`;
+                dom.authForm.classList.add('hidden-content');
+                dom.mainContent.classList.remove('hidden-content');
+                dom.logoutBtn.classList.remove('hidden-content');
+                dom.toggleAiSidebarBtn.classList.remove('hidden-content');
+                loadFiles(); loadAiHistory(); loadBookmarks();
+            } else {
+                currentUserId = null;
+                dom.authStatus.textContent = "Chưa đăng nhập.";
+                dom.mainContent.classList.add('hidden-content');
+                dom.toggleAiSidebarBtn.classList.add('hidden-content');
+                dom.authForm.classList.remove('hidden-content');
+                dom.logoutBtn.classList.add('hidden-content');
+            }
+        });
+
+        dom.registerBtn.addEventListener('click', () => createUserWithEmailAndPassword(auth, dom.emailInput.value, dom.passwordInput.value).catch(e => updateStatus('error', e.message, dom.authStatus)));
+        dom.loginBtn.addEventListener('click', () => signInWithEmailAndPassword(auth, dom.emailInput.value, dom.passwordInput.value).catch(e => updateStatus('error', "Email hoặc mật khẩu không đúng.", dom.authStatus)));
+        dom.logoutBtn.addEventListener('click', () => signOut(auth));
+        
+        dom.fileInput.addEventListener('change', async (event) => {
+            const file = event.target.files[0];
+            if (!file || !auth.currentUser) return;
+            if (!indexedDB_db) await openDatabase();
+            
+            const fileRecord = { fileName: file.name, fileType: file.type, fileBlob: file, uploadedAt: Date.now() };
+            const request = indexedDB_db.transaction([FILE_STORE_NAME], 'readwrite').objectStore(FILE_STORE_NAME).add(fileRecord);
+            request.onsuccess = (e) => { loadFileFromIndexedDBAndDisplay(e.target.result); loadFiles(); };
+            request.onerror = () => updateStatus('error', 'Lỗi khi lưu sách.');
+        });
+        
+        dom.confirmDeleteBtn.addEventListener('click', () => { if (confirmAction) confirmAction(); hideConfirmationModal(); });
+        dom.cancelDeleteBtn.addEventListener('click', hideConfirmationModal);
+        const openAiSidebar = () => { dom.aiSidebar.classList.remove('translate-x-full'); dom.aiSidebarBackdrop.classList.remove('hidden-content'); };
+        const closeAiSidebar = () => { dom.aiSidebar.classList.add('translate-x-full'); dom.aiSidebarBackdrop.classList.add('hidden-content'); dom.selectionActionButtons.classList.remove('active'); };
+        dom.toggleAiSidebarBtn.addEventListener('click', openAiSidebar);
+        dom.closeAiSidebarBtn.addEventListener('click', closeAiSidebar);
+        dom.aiSidebarBackdrop.addEventListener('click', closeAiSidebar);
+        document.addEventListener('mouseup', handleTextSelection);
+        document.addEventListener('touchend', handleTextSelection);
+
+        dom.sendPromptButton.addEventListener("click", () => callGeminiAPI(dom.promptInput.value, currentPageTextContent));
+        dom.explainSelectedBtn.addEventListener('click', () => callGeminiAPI(`Bạn là một chuyên gia giải thích các khái niệm phức tạp. Hãy giải thích sâu về khái niệm sau: "${selectedTextForAI}"`, ""));
+        dom.findExampleBtn.addEventListener('click', () => callGeminiAPI(`Hãy cung cấp 3 ví dụ thực tế trong đời sống về ứng dụng của khái niệm sau: "${selectedTextForAI}"`, ""));
+        dom.solveExerciseBtn.addEventListener('click', () => callGeminiAPI(`Bạn là một giáo viên tận tâm. Hãy giải bài tập sau đây từng bước chi tiết và giải thích lý do cho mỗi bước. Bài tập: "${selectedTextForAI}"`, ""));
+        
+        dom.summarizeSelectedBtn.addEventListener('click', () => {
+            if (selectedTextForAI) {
+                const fullPrompt = `Bạn là một trợ lý AI chuyên tóm tắt văn bản. Hãy tóm tắt nội dung sau một cách ngắn gọn, rõ ràng và giữ lại những ý chính:\n\n---\n${selectedTextForAI}\n---`;
+                callGeminiAPI(fullPrompt, "");
+            }
+        });
+
+        dom.summarizePageBtn.addEventListener('click', () => {
+            if (currentPageTextContent) {
+                const fullPrompt = `Bạn là một trợ lý AI chuyên tóm tắt tài liệu học thuật...hãy tóm tắt...Trình bày dưới dạng gạch đầu dòng...\n\n---\n${currentPageTextContent}\n---`;
+                callGeminiAPI(fullPrompt, "");
+            }
+        });
+
+        dom.prevPageBtn.addEventListener('click', () => renderBookPages(currentPageNum - (window.innerWidth >= 768 && currentPageNum > 1 ? 2 : 1) ));
+        dom.nextPageBtn.addEventListener('click', () => renderBookPages(currentPageNum + (window.innerWidth >= 768 && currentPageNum > 1 ? 2 : 1) ));
+        dom.goToPageInput.addEventListener('change', () => renderBookPages(parseInt(dom.goToPageInput.value)));
+        dom.bookmarkPageBtn.addEventListener('click', async () => {
+            if (!currentFileId || !pdfDocument) return;
+            const transaction = indexedDB_db.transaction([BOOKMARK_STORE_NAME], 'readwrite');
+            transaction.objectStore(BOOKMARK_STORE_NAME).add({
+                fileId: currentFileId,
+                fileName: dom.fileNameDisplay.textContent.replace('Đang đọc: ', ''),
+                pageNum: currentPageNum,
+                bookmarkedAt: Date.now()
+            });
+            transaction.oncomplete = () => { updateStatus('success', `Đã đánh dấu trang ${currentPageNum}.`); loadBookmarks(); };
+        });
+
+        window.addEventListener('resize', () => { if (pdfDocument) renderBookPages(currentPageNum); });
+    </script>
+</body>
+</html>
+
+
