@@ -61,6 +61,7 @@
             position: relative;
             background-color: white;
             box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            width: 100%;
         }
         .pdf-page-container canvas {
             display: block; max-width: 100%; height: auto;
@@ -168,7 +169,7 @@
             </div>
             
             <!-- Main Viewer for textbook pages -->
-            <div id="documentViewer" class="flex-grow w-full flex justify-center items-start overflow-auto bg-gray-200 p-4 md:p-8 rounded-md gap-8 min-h-[70vh]">
+            <div id="documentViewer" class="flex-grow w-full flex justify-center items-start overflow-auto bg-gray-200 p-4 md:p-8 rounded-md gap-2 min-h-[70vh]">
                 <p class="text-center text-gray-500 self-center">Tải lên một cuốn sách để bắt đầu hành trình tri thức của bạn.</p>
             </div>
         </div>
@@ -322,11 +323,12 @@
         async function renderSinglePageToContainer(pageNum, container) {
             try {
                 const page = await pdfDocument.getPage(pageNum);
-                const viewport = page.getViewport({ scale: 1 });
+                // Adjust scale for better quality
+                const viewport = page.getViewport({ scale: 2 }); 
                 const scale = container.clientWidth / viewport.width;
-                const scaledViewport = page.getViewport({ scale });
+                const scaledViewport = page.getViewport({ scale: scale * 2 });
 
-                container.innerHTML = ''; // Clear previous content
+                container.innerHTML = ''; 
                 const pageWrapper = document.createElement('div');
                 pageWrapper.className = 'pdf-page-container';
                 const canvas = document.createElement('canvas');
@@ -342,65 +344,90 @@
                 const textContent = await page.getTextContent();
                 await pdfjsLib.renderTextLayer({ textContent, container: textLayerDiv, viewport: scaledViewport, textDivs: [] }).promise;
                 
-                textLayerDiv.style.width = `${viewport.width}px`;
-                textLayerDiv.style.height = `${viewport.height}px`;
-                textLayerDiv.style.transform = `scale(${scale}, ${scale})`;
+                textLayerDiv.style.width = `${scaledViewport.width}px`;
+                textLayerDiv.style.height = `${scaledViewport.height}px`;
             } catch (error) {
                 console.error(`Error rendering page ${pageNum}:`, error);
                 container.innerHTML = `<p class="text-red-600 p-4">Lỗi hiển thị trang ${pageNum}.</p>`;
             }
         }
 
+        // --- FIX START: Reworked page rendering and navigation logic ---
         async function renderBookPages(pageNum) {
             if (!pdfDocument) return;
-            
+
             dom.documentViewer.innerHTML = '<div class="large-spinner mx-auto self-center"></div>';
             
             const isTwoPageView = window.innerWidth >= 768;
-            if (isTwoPageView && pageNum > 1 && pageNum % 2 === 0) pageNum--;
-            currentPageNum = pageNum;
+            
+            // This array will hold information about which pages to render
+            let pagesToRender = [];
 
-            let pagesToRenderNumbers = [];
             if (isTwoPageView) {
-                if (currentPageNum === 1) pagesToRenderNumbers.push(1);
-                else {
-                    pagesToRenderNumbers.push(currentPageNum);
-                    if (currentPageNum + 1 <= totalPages) pagesToRenderNumbers.push(currentPageNum + 1);
+                // Desktop: two-page book view
+                if (pageNum === 1) {
+                    // Special case for the first page, it's a single page on the right
+                    pagesToRender.push({ pageNum: 1, position: 'right' });
+                    currentPageNum = 1;
+                } else {
+                    // For other pages, find the start of the spread (the left, even-numbered page)
+                    let leftPage = (pageNum % 2 === 0) ? pageNum : pageNum - 1;
+                    currentPageNum = leftPage; // The current "location" is the spread starting at this page
+                    
+                    if (leftPage <= totalPages) {
+                        pagesToRender.push({ pageNum: leftPage, position: 'left' });
+                    }
+                    if (leftPage + 1 <= totalPages) {
+                        pagesToRender.push({ pageNum: leftPage + 1, position: 'right' });
+                    }
                 }
             } else {
-                pagesToRenderNumbers.push(currentPageNum);
+                // Mobile: single-page view
+                pagesToRender.push({ pageNum: pageNum, position: 'center' });
+                currentPageNum = pageNum;
             }
-            
+
+            // Extract text content for the AI from all visible pages
             let currentViewTextArray = [];
-            for (const pNum of pagesToRenderNumbers) {
-                const page = await pdfDocument.getPage(pNum);
+            for (const pageInfo of pagesToRender) {
+                const page = await pdfDocument.getPage(pageInfo.pageNum);
                 const textContent = await page.getTextContent();
                 currentViewTextArray.push(textContent.items.map(item => item.str).join(' '));
             }
             currentPageTextContent = currentViewTextArray.join('\n\n');
 
             dom.documentViewer.innerHTML = '';
-            for (const pNum of pagesToRenderNumbers) {
-                const pageContainer = document.createElement('div');
-                pageContainer.className = 'w-full md:w-1/2 relative';
-                if (pagesToRenderNumbers.length === 1) {
-                    pageContainer.className = 'w-full max-w-4xl relative';
-                }
-                dom.documentViewer.appendChild(pageContainer);
-                await renderSinglePageToContainer(pNum, pageContainer);
+            
+            // Add a blank placeholder on the left for the first page in desktop view to create the book effect
+            if (isTwoPageView && pagesToRender.length > 0 && pagesToRender[0].pageNum === 1) {
+                 const placeholder = document.createElement('div');
+                 placeholder.className = 'w-full md:w-1/2 p-1';
+                 dom.documentViewer.appendChild(placeholder);
             }
 
-            // Update page number display
-            if (pagesToRenderNumbers.length > 1) {
-                dom.pageNumberDisplay.textContent = `Trang ${pagesToRenderNumbers[0]}-${pagesToRenderNumbers[1]} / ${totalPages}`;
-            } else {
-                dom.pageNumberDisplay.textContent = `Trang ${pagesToRenderNumbers[0]} / ${totalPages}`;
+            // Render the actual pages
+            for (const pageInfo of pagesToRender) {
+                const pageContainer = document.createElement('div');
+                pageContainer.className = 'w-full md:w-1/2 p-1'; // p-1 creates a "gutter" between pages
+                dom.documentViewer.appendChild(pageContainer);
+                await renderSinglePageToContainer(pageInfo.pageNum, pageContainer);
             }
             
+            // Update the page number display
+            if (pagesToRender.length > 1) {
+                dom.pageNumberDisplay.textContent = `Trang ${pagesToRender[0].pageNum}-${pagesToRender[1].pageNum} / ${totalPages}`;
+            } else if (pagesToRender.length === 1) {
+                dom.pageNumberDisplay.textContent = `Trang ${pagesToRender[0].pageNum} / ${totalPages}`;
+            }
+            
+            // Update controls state
+            dom.goToPageInput.value = pageNum; // Show the target page number
             dom.prevPageBtn.disabled = currentPageNum <= 1;
-            dom.nextPageBtn.disabled = (isTwoPageView ? currentPageNum + 1 : currentPageNum) >= totalPages;
-            dom.goToPageInput.value = currentPageNum;
+            let lastPageOnScreen = pagesToRender.length > 0 ? pagesToRender[pagesToRender.length - 1].pageNum : 0;
+            dom.nextPageBtn.disabled = lastPageOnScreen >= totalPages;
         }
+        // --- FIX END ---
+
 
         async function callGeminiAPI(aiPrompt, contextText = "", targetViewer = dom.responseContainer) {
             if (!model || !auth.currentUser) {
@@ -491,9 +518,7 @@
             };
         }
         
-        // --- FIX START: Automatically open sidebar on text selection ---
         function handleTextSelection(e) {
-            // Check if the selection is within the document viewer area
             if (!dom.documentViewer.contains(e.target)) return;
 
             const selection = window.getSelection();
@@ -502,18 +527,14 @@
             if (selectedText.length > 5) {
                 selectedTextForAI = selectedText;
                 dom.selectionActionButtons.classList.add('active');
-                openAiSidebar(); // Automatically open the sidebar to show the buttons
+                openAiSidebar();
             } else {
                 selectedTextForAI = "";
-                // Do not hide the buttons if the sidebar is already open
-                // The buttons will be hidden when the sidebar is closed or another action is taken
                 if (!dom.aiSidebar.classList.contains('translate-x-full')) {
-                    // Only remove if sidebar is open, to avoid weird state changes
                     dom.selectionActionButtons.classList.remove('active');
                 }
             }
         }
-        // --- FIX END ---
         
         // ===============================================
         // Data Loading and Deletion
@@ -661,21 +682,51 @@
 
         dom.summarizePageBtn.addEventListener('click', () => {
             if (currentPageTextContent) {
-                const fullPrompt = `Bạn là một trợ lý AI chuyên tóm tắt tài liệu học thuật...hãy tóm tắt...Trình bày dưới dạng gạch đầu dòng...\n\n---\n${currentPageTextContent}\n---`;
+                const fullPrompt = `Bạn là một trợ lý AI chuyên tóm tắt tài liệu học thuật. Dựa vào nội dung của trang sách này, hãy tóm tắt những ý chính, định nghĩa quan trọng và các khái niệm cốt lõi. Trình bày dưới dạng gạch đầu dòng để dễ theo dõi.\n\n---\n${currentPageTextContent}\n---`;
                 callGeminiAPI(fullPrompt, "");
             }
         });
 
-        dom.prevPageBtn.addEventListener('click', () => renderBookPages(currentPageNum - (window.innerWidth >= 768 && currentPageNum > 1 ? 2 : 1) ));
-        dom.nextPageBtn.addEventListener('click', () => renderBookPages(currentPageNum + (window.innerWidth >= 768 && currentPageNum > 1 ? 2 : 1) ));
-        dom.goToPageInput.addEventListener('change', () => renderBookPages(parseInt(dom.goToPageInput.value)));
+        // --- FIX START: Reworked PDF Controls Logic for book-like navigation ---
+        dom.prevPageBtn.addEventListener('click', () => {
+            const isTwoPageView = window.innerWidth >= 768;
+            if (isTwoPageView) {
+                // In two-page view, from spread 2-3 we go back to page 1. Otherwise, go back by 2 pages.
+                let newPage = (currentPageNum === 2) ? 1 : currentPageNum - 2;
+                renderBookPages(Math.max(1, newPage));
+            } else {
+                // Mobile view just goes back one page
+                renderBookPages(Math.max(1, currentPageNum - 1));
+            }
+        });
+
+        dom.nextPageBtn.addEventListener('click', () => {
+            const isTwoPageView = window.innerWidth >= 768;
+            if (isTwoPageView) {
+                // In two-page view, from page 1 we go to page 2 (spread 2-3). Otherwise, jump by 2 pages.
+                let newPage = (currentPageNum === 1) ? 2 : currentPageNum + 2;
+                renderBookPages(Math.min(totalPages, newPage));
+            } else {
+                // Mobile view just goes forward one page
+                renderBookPages(Math.min(totalPages, currentPageNum + 1));
+            }
+        });
+
+        dom.goToPageInput.addEventListener('change', () => {
+            const newPage = parseInt(dom.goToPageInput.value);
+            if (!isNaN(newPage) && newPage >= 1 && newPage <= totalPages) {
+                renderBookPages(newPage);
+            }
+        });
+        // --- FIX END ---
+
         dom.bookmarkPageBtn.addEventListener('click', async () => {
             if (!currentFileId || !pdfDocument) return;
             const transaction = indexedDB_db.transaction([BOOKMARK_STORE_NAME], 'readwrite');
             transaction.objectStore(BOOKMARK_STORE_NAME).add({
                 fileId: currentFileId,
                 fileName: dom.fileNameDisplay.textContent.replace('Đang đọc: ', ''),
-                pageNum: currentPageNum,
+                pageNum: currentPageNum, // Bookmark the start of the current view
                 bookmarkedAt: Date.now()
             });
             transaction.oncomplete = () => { updateStatus('success', `Đã đánh dấu trang ${currentPageNum}.`); loadBookmarks(); };
